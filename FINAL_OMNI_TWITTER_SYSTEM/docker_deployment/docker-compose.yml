@@ -1,0 +1,154 @@
+version: '3.8'
+
+services:
+  # Redis for Celery broker and result backend
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+  # PostgreSQL database
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: omni_news
+      POSTGRES_USER: omni_user
+      POSTGRES_PASSWORD: omni_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # Main application
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WEBHOOK_BASE_URL=http://localhost:5001
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: python main.py dashboard
+
+  # Webhook server (separate from main app for scalability)
+  webhook:
+    build: .
+    ports:
+      - "5001:5001"
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - WEBHOOK_BASE_URL=http://localhost:5001
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: python webhook_endpoints.py
+
+  # Celery worker for scraping tasks
+  celery-scraping:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery worker --app=tasks.celery_app:celery_app --queues=scraping --loglevel=info --concurrency=2
+
+  # Celery worker for analysis tasks
+  celery-analysis:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery worker --app=tasks.celery_app:celery_app --queues=analysis --loglevel=info --concurrency=2
+
+  # Celery worker for Twitter tasks
+  celery-twitter:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery worker --app=tasks.celery_app:celery_app --queues=twitter --loglevel=info --concurrency=1
+
+  # Celery worker for maintenance tasks
+  celery-maintenance:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery worker --app=tasks.celery_app:celery_app --queues=maintenance,monitoring --loglevel=info --concurrency=1
+
+  # Celery beat scheduler
+  celery-beat:
+    build: .
+    environment:
+      - DATABASE_URL=postgresql://omni_user:omni_password@postgres:5432/omni_news
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery beat --app=tasks.celery_app:celery_app --loglevel=info
+
+  # Flower for Celery monitoring (optional)
+  flower:
+    build: .
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+    volumes:
+      - .:/app
+    restart: unless-stopped
+    command: celery flower --app=tasks.celery_app:celery_app --port=5555
+
+volumes:
+  redis_data:
+  postgres_data: 
