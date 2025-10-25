@@ -1,4 +1,4 @@
-# Sean McVay News Scraping Pipeline
+#  News Scraping Pipeline
 
 A complete Python pipeline for periodically scraping news articles about Sean McVay using Celery and storing them in PostgreSQL with sentiment analysis and relevance scoring.
 
